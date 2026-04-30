@@ -46,21 +46,14 @@ def split_into_sentences(text: str) -> list:
 
 
 async def run_edge_tts(text: str, voice: str, rate: str) -> Optional[bytes]:
-    cmd = [
-        sys.executable, "-m", "edge_tts",
-        "--voice", voice,
-        "--rate", rate,
-        "--text", text,
-        "--write-media", "pipe:1",
-    ]
+    import edge_tts
+    communicate = edge_tts.Communicate(text, voice, rate=rate)
+    audio_data = b""
     try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        data, _ = await process.communicate()
-        return data if data else None
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        return audio_data if audio_data else None
     except Exception:
         return None
 
