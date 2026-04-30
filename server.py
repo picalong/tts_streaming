@@ -14,10 +14,19 @@ import time
 from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MAX_CONCURRENT = int(os.getenv("TTS_MAX_CONCURRENT", "8"))
 MAX_RAM_GB = float(os.getenv("TTS_MAX_RAM_GB", "8.0"))
