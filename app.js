@@ -132,7 +132,9 @@ app.post("/tts/stream", (req, res) => {
       return;
     }
 
-    const piper = spawn("piper", [
+    const PIPER_PATH = "/var/www/tts_streaming/piper/piper";
+
+    const piper = spawn(PIPER_PATH, [
       "--model", voicePath,
       "--output-raw",
       "--length-scale", (1.0 / Math.max(speed, 0.1)).toFixed(4),
