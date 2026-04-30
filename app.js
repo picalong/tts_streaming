@@ -18,7 +18,7 @@ const VOICE_NAMES = [
 ];
 const VOICES = {};
 
-const MAX_CONCURRENT = parseInt(process.env.TTS_MAX_CONCURRENT || "2", 10);
+const MAX_CONCURRENT = parseInt(process.env.TTS_MAX_CONCURRENT || "8", 10);
 const MAX_RAM_GB = parseFloat(process.env.TTS_MAX_RAM_GB || "8.0");
 
 let activeCount = 0;
