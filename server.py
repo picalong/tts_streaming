@@ -60,21 +60,17 @@ def split_into_sentences(text: str) -> list:
     return segments
 
 
-async def run_edge_tts(text: str, voice: str, rate: str, resp_q: asyncio.Queue, req_id: str):
+async def run_edge_tts(text: str, voice: str, rate: str) -> bytes:
     import edge_tts
+    audio_data = b""
     try:
-        print(f"Calling edge_tts for: {text[:50]} voice={voice} rate={rate}", flush=True)
         communicate = edge_tts.Communicate(text, voice, rate=rate)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
-                with resp_lock:
-                    if req_id in response_queues:
-                        await response_queues[req_id].put(chunk["data"])
-        print(f"edge_tts done for: {text[:50]}", flush=True)
+                audio_data += chunk["data"]
     except Exception as e:
         print(f"edge_tts error: {type(e).__name__}: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+    return audio_data
 
 
 async def generate_audio(req_id: str, text: str, voice: str, rate: str):
@@ -85,15 +81,21 @@ async def generate_audio(req_id: str, text: str, voice: str, rate: str):
     with resp_lock:
         active_count += 1
 
+    all_audio = b""
+
     try:
         for sentence in sentences:
-            await run_edge_tts(sentence, voice, rate, None, req_id)
+            chunk_audio = await run_edge_tts(sentence, voice, rate)
+            if chunk_audio:
+                all_audio += chunk_audio
     except Exception:
         pass
 
     with resp_lock:
         active_count -= 1
         if req_id in response_queues:
+            if all_audio:
+                await response_queues[req_id].put(("audio", all_audio))
             await response_queues[req_id].put(None)
 
 
@@ -170,7 +172,9 @@ async def tts_stream(body: TTSRequestBody):
                     yield sse_pack("done", "[DONE]")
                     break
 
-                yield sse_pack("audio", json.dumps({"audio": chunk.hex()}))
+                event_type, audio_data = chunk
+                if event_type == "audio":
+                    yield sse_pack("audio", json.dumps({"audio": audio_data.hex()}))
         finally:
             with resp_lock:
                 response_queues.pop(req_id, None)
@@ -217,20 +221,7 @@ TEST_HTML = """
         const status = document.getElementById("status");
         btn.disabled = true;
         status.textContent = "Đang tạo âm thanh...";
-        const queue = [];
-        let currentAudio = null;
-        let playing = false;
-        function playNext() {
-            if (!queue.length) { playing = false; status.textContent = "Xong!"; btn.disabled = false; return; }
-            playing = true;
-            const blob = queue.shift();
-            const url = URL.createObjectURL(blob);
-            currentAudio = new Audio(url);
-            currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; playNext(); };
-            currentAudio.onerror = () => { playNext(); };
-            currentAudio.play().catch(() => { playNext(); });
-            status.textContent = "Đang đọc... (còn " + queue.length + " đoạn chờ)";
-        }
+        let allAudio = null;
         const res = await fetch("/tts/stream", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
@@ -242,7 +233,6 @@ TEST_HTML = """
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
-        let chunkCount = 0;
         while (true) {
             const {done, value} = await reader.read();
             if (done) break;
@@ -252,18 +242,26 @@ TEST_HTML = """
             for (const line of lines) {
                 if (!line.startsWith("data: ")) continue;
                 const payload = line.slice(6).trim();
-                if (payload === "[DONE]") { if (!playing && !queue.length) { status.textContent = "Xong!"; btn.disabled = false; } break; }
+                if (payload === "[DONE]") {
+                    if (allAudio) {
+                        const url = URL.createObjectURL(new Blob([allAudio], {type: "audio/mpeg"}));
+                        const audio = new Audio(url);
+                        audio.onended = () => { URL.revokeObjectURL(url); status.textContent = "Xong!"; btn.disabled = false; };
+                        audio.onerror = () => { status.textContent = "Lỗi phát âm thanh!"; btn.disabled = false; };
+                        status.textContent = "Đang phát...";
+                        audio.play();
+                    } else {
+                        status.textContent = "Không có audio!";
+                        btn.disabled = false;
+                    }
+                    break;
+                }
                 const {audio} = JSON.parse(payload);
                 if (!audio) continue;
-                const bytes = Uint8Array.from(audio.match(/.{2}/g).map(b => parseInt(b, 16)));
-                const blob = new Blob([bytes], {type: "audio/mpeg"});
-                queue.push(blob);
-                chunkCount++;
-                status.textContent = "Đã tạo " + chunkCount + " đoạn...";
-                if (!playing) playNext();
+                allAudio = Uint8Array.from(audio.match(/.{2}/g).map(b => parseInt(b, 16)));
+                status.textContent = "Đã nhận " + (allAudio.length / 1024).toFixed(1) + " KB...";
             }
         }
-        status.textContent = "Xong! (" + chunkCount + " chunk)";
     }
     </script>
 </body>
