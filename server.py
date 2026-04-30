@@ -178,7 +178,95 @@ async def tts_stream(body: TTSRequestBody):
     )
 
 
-if __name__ == "__main__":
+TEST_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TTS Test — edge-tts</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+        textarea { width: 100%; font-size: 16px; }
+        button { padding: 8px 20px; font-size: 16px; }
+        #status { color: #888; }
+    </style>
+</head>
+<body>
+    <h2>Edge-TTS Server Test</h2>
+    <textarea id="text" rows="4">Xin chào, đây là thử nghiệm giọng đọc tiếng Việt.</textarea>
+    <br><br>
+    <select id="rate">
+        <option value="-25%">0.75x</option>
+        <option value="+0%" selected>1.0x</option>
+        <option value="+25%">1.25x</option>
+        <option value="+50%">1.5x</option>
+    </select>
+    <button onclick="speak()">▶ Đọc</button>
+    <p id="status"></p>
+    <script>
+    async function speak() {
+        const btn = document.querySelector("button");
+        const status = document.getElementById("status");
+        btn.disabled = true;
+        status.textContent = "Đang tạo âm thanh...";
+        const queue = [];
+        let currentAudio = null;
+        let playing = false;
+        function playNext() {
+            if (!queue.length) { playing = false; status.textContent = "Xong!"; btn.disabled = false; return; }
+            playing = true;
+            const blob = queue.shift();
+            const url = URL.createObjectURL(blob);
+            currentAudio = new Audio(url);
+            currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; playNext(); };
+            currentAudio.onerror = () => { playNext(); };
+            currentAudio.play().catch(() => { playNext(); });
+            status.textContent = "Đang đọc... (còn " + queue.length + " đoạn chờ)";
+        }
+        const res = await fetch("/tts/stream", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                text: document.getElementById("text").value,
+                rate: document.getElementById("rate").value
+            })
+        });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        let chunkCount = 0;
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, {stream: true});
+            const lines = buf.split("\\n");
+            buf = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                const payload = line.slice(6).trim();
+                if (payload === "[DONE]") { if (!playing && !queue.length) { status.textContent = "Xong!"; btn.disabled = false; } break; }
+                const {audio} = JSON.parse(payload);
+                if (!audio) continue;
+                const bytes = Uint8Array.from(audio.match(/.{2}/g).map(b => parseInt(b, 16)));
+                const blob = new Blob([bytes], {type: "audio/mpeg"});
+                queue.push(blob);
+                chunkCount++;
+                status.textContent = "Đã tạo " + chunkCount + " đoạn...";
+                if (!playing) playNext();
+            }
+        }
+        status.textContent = "Xong! (" + chunkCount + " chunk)";
+    }
+    </script>
+</body>
+</html>
+"""
+
+
+@app.get("/test")
+async def test_page():
+    from starlette.responses import HTMLResponse
+    return HTMLResponse(TEST_HTML)
     import uvicorn
     print(f"Edge-TTS server running on port {PORT}")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
