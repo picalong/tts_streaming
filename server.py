@@ -41,8 +41,23 @@ resp_lock = threading.Lock()
 
 
 def split_into_sentences(text: str) -> list:
-    sentences = re.findall(r'[^.!?]*[.!?]+|[^.!?]+$', text.strip())
-    return [s.strip() for s in sentences if s.strip()]
+    raw = re.findall(r'[^.!?]*[.!?]+|[^.!?]+$', text.strip())
+    raw = [s.strip() for s in raw if s.strip()]
+    if not raw:
+        return [text] if text.strip() else []
+    max_len = 100
+    segments = []
+    current = ""
+    for s in raw:
+        if len(current) + len(s) <= max_len and current:
+            current += " " + s
+        else:
+            if current:
+                segments.append(current)
+            current = s
+    if current:
+        segments.append(current)
+    return segments
 
 
 async def run_edge_tts(text: str, voice: str, rate: str, resp_q: asyncio.Queue, req_id: str):
