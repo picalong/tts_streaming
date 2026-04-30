@@ -32,7 +32,7 @@ MAX_CONCURRENT = int(os.getenv("TTS_MAX_CONCURRENT", "8"))
 MAX_RAM_GB = float(os.getenv("TTS_MAX_RAM_GB", "8.0"))
 PORT = int(os.getenv("PORT", "3002"))
 
-DEFAULT_VOICE = "vi-VN-HoaiNeural"
+DEFAULT_VOICE = "vi-VN-HoaiMyNeural"
 DEFAULT_RATE = "+0%"
 
 active_count = 0
