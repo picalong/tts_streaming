@@ -47,14 +47,23 @@ def split_into_sentences(text: str) -> list:
 
 async def run_edge_tts(text: str, voice: str, rate: str) -> Optional[bytes]:
     import edge_tts
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
-    audio_data = b""
+    import tempfile
     try:
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
+        print(f"Calling edge_tts for: {text[:50]} voice={voice} rate={rate}", flush=True)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            tmp_path = f.name
+        communicate = edge_tts.Communicate(text, voice, rate=rate)
+        await communicate.save(tmp_path)
+        with open(tmp_path, "rb") as f:
+            audio_data = f.read()
+        import os
+        os.unlink(tmp_path)
+        print(f"edge_tts result: {len(audio_data)} bytes", flush=True)
         return audio_data if audio_data else None
-    except Exception:
+    except Exception as e:
+        print(f"edge_tts error: {type(e).__name__}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return None
 
 
