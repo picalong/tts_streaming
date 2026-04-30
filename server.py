@@ -45,26 +45,21 @@ def split_into_sentences(text: str) -> list:
     return [s.strip() for s in sentences if s.strip()]
 
 
-async def run_edge_tts(text: str, voice: str, rate: str) -> Optional[bytes]:
+async def run_edge_tts(text: str, voice: str, rate: str, resp_q: asyncio.Queue, req_id: str):
     import edge_tts
-    import tempfile
     try:
         print(f"Calling edge_tts for: {text[:50]} voice={voice} rate={rate}", flush=True)
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-            tmp_path = f.name
         communicate = edge_tts.Communicate(text, voice, rate=rate)
-        await communicate.save(tmp_path)
-        with open(tmp_path, "rb") as f:
-            audio_data = f.read()
-        import os
-        os.unlink(tmp_path)
-        print(f"edge_tts result: {len(audio_data)} bytes", flush=True)
-        return audio_data if audio_data else None
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                with resp_lock:
+                    if req_id in response_queues:
+                        await response_queues[req_id].put(chunk["data"])
+        print(f"edge_tts done for: {text[:50]}", flush=True)
     except Exception as e:
         print(f"edge_tts error: {type(e).__name__}: {e}", flush=True)
         import traceback
         traceback.print_exc()
-        return None
 
 
 async def generate_audio(req_id: str, text: str, voice: str, rate: str):
@@ -77,11 +72,7 @@ async def generate_audio(req_id: str, text: str, voice: str, rate: str):
 
     try:
         for sentence in sentences:
-            mp3_data = await run_edge_tts(sentence, voice, rate)
-            if mp3_data:
-                with resp_lock:
-                    if req_id in response_queues:
-                        await response_queues[req_id].put(mp3_data)
+            await run_edge_tts(sentence, voice, rate, None, req_id)
     except Exception:
         pass
 
