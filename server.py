@@ -267,6 +267,9 @@ TEST_HTML = """
 async def test_page():
     from starlette.responses import HTMLResponse
     return HTMLResponse(TEST_HTML)
+
+
+if __name__ == "__main__":
     import uvicorn
     print(f"Edge-TTS server running on port {PORT}")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
